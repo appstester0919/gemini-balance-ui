@@ -79,6 +79,7 @@ pnpm build && pnpm start
    - `GMB_KEYS` = comma-separated Gemini API keys (NO `NEXT_PUBLIC_` prefix!)
    - `GMB_BACKEND_URL` (optional) = `https://gemini-balance-lite.appstester0919.deno.net`
      (default is already correct)
+   - `APP_PASSWORD` = a strong password (Vercel env var). Leave empty for public access.
 
 5. **Deploy**. The first build will fetch deps + run `next build` + start the
    Node.js serverless functions. The `/api/proxy` route runs server-side only.
@@ -93,6 +94,11 @@ pnpm build && pnpm start
 - The `GMB_KEYS` env var is read **only** server-side (`runtime = "nodejs"`).
   It will not be bundled into the client.
 - Do not prefix `GMB_KEYS` with `NEXT_PUBLIC_` — that would expose it.
+- `APP_PASSWORD` gate runs at the edge middleware (`middleware.ts`) and covers
+  both static pages and API routes (Vercel's built-in Password Protection does
+  not cover API routes, hence the custom middleware).
+- For the cleanest deployment, disable Vercel Authentication in
+  Settings → Deployment Protection so our middleware is the sole gate.
 
 ## Limitations / next steps
 
