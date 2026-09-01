@@ -1,11 +1,11 @@
-import { Mic, FileAudio, Volume2 } from "lucide-react";
+import { Mic, FileAudio, Volume2, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 
 interface ModeCard {
   href: string;
   title: string;
   blurb: string;
-  Icon: React.ComponentType<{ size?: number; className?: string }>;
+  Icon: LucideIcon;
   accent: string; // tailwind class for the icon ring
 }
 
