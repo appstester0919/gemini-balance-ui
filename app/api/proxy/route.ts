@@ -14,8 +14,9 @@
 import { NextResponse } from "next/server";
 import { proxyFetch, getKeyPool } from "@/lib/proxy";
 
-export const runtime = "nodejs"; // uses process.env, needs full Node API
+export const runtime = "edge"; // uses process.env (env vars without NEXT_PUBLIC_ prefix), up to 30s timeout
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // request budget — Vercel will clamp to plan limit if exceeded
 
 interface RequestBody {
   endpoint?: unknown;
