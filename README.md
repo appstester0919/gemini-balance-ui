@@ -4,11 +4,11 @@ Next.js 14 frontend for the [`gemini-balance-lite`](https://gemini-balance-lite.
 
 Three modes over a single Gemini API:
 
-| Mode             | Endpoint                  | What it does                                          |
-| ---------------- | ------------------------- | ----------------------------------------------------- |
-| Text → Speech    | `POST /v1/audio/speech`   | TTS via Gemini                                        |
-| Audio → Text     | `POST /v1/audio/transcriptions` | Whisper-style transcription via Gemini          |
-| Audio → Audio    | `POST /v1/audio/speech`   | Transcribe → translate → re-speak (full pipeline)      |
+| Mode             | Endpoint                       | What it does                                          |
+| ---------------- | ------------------------------ | ----------------------------------------------------- |
+| Text → Speech    | `POST /v1/chat/completions`    | TTS via Gemini (`modalities: ["audio"]`)              |
+| Audio → Text     | `POST /v1/audio/transcriptions` | Transcribe audio via `gemini-3.5-flash`            |
+| Audio → Audio    | `POST /v1/audio/speech`        | Transcribe → translate → re-speak (full pipeline)      |
 
 The browser **never sees** a Gemini API key. A single server-side Next.js API
 route at `app/api/proxy/route.ts` adds `Authorization: Bearer <key>` to every
@@ -61,12 +61,30 @@ pnpm build && pnpm start
 
 ## Deploy (Vercel)
 
-1. Push this repo to GitHub.
-2. Import the repo in Vercel.
-3. Add environment variable `GMB_KEYS` (comma-separated, no spaces required).
-4. Deploy. The default backend URL is hard-coded to
-   `https://gemini-balance-lite.appstester0919.deno.net`. To override, set
-   `GMB_BACKEND_URL` in Vercel env as well.
+1. **Create the GitHub repo** at https://github.com/new (owner: `appstester0919`,
+   name: `gemini-balance-ui`, **do NOT initialize with README** — local repo already
+   has one). Copy the HTTPS URL.
+
+2. **Push** (from `D:\AI\gemini-balance-ui`):
+   ```bash
+   git push -u origin main
+   ```
+   Use a GitHub PAT if prompted (HTTPS + 2FA). See the `github-auth` skill for the
+   WSL HTTPS+PAT recipe.
+
+3. **Import in Vercel**: https://vercel.com/new → pick `appstester0919/gemini-balance-ui`
+   → Next.js preset auto-detected.
+
+4. **Add environment variables** in Vercel project settings:
+   - `GMB_KEYS` = comma-separated Gemini API keys (NO `NEXT_PUBLIC_` prefix!)
+   - `GMB_BACKEND_URL` (optional) = `https://gemini-balance-lite.appstester0919.deno.net`
+     (default is already correct)
+
+5. **Deploy**. The first build will fetch deps + run `next build` + start the
+   Node.js serverless functions. The `/api/proxy` route runs server-side only.
+
+6. **Verify** by opening the deployed URL → record audio on `/audio-to-audio` →
+   confirm transcript + translation + TTS playback all work end-to-end.
 
 ## Security notes
 
@@ -83,3 +101,6 @@ pnpm build && pnpm start
   rate, etc.) and persist across serverless cold-starts via Upstash Redis.
 - No streaming yet — large transcriptions could block. Consider server-sent
   events if user feedback demands it.
+- Real-time / live streaming (Sub-task C from the original plan) is NOT yet
+  implemented — current A2A path is upload-and-process. Live API WebSocket
+  requires a separate session.
