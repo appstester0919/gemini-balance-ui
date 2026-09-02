@@ -1,4 +1,4 @@
-import { Mic, FileAudio, Volume2, type LucideIcon } from "lucide-react";
+import { Mic, FileAudio, Volume2, Radio, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 
 interface ModeCard {
@@ -31,11 +31,18 @@ const MODES: ModeCard[] = [
     Icon: FileAudio,
     accent: "ring-violet-500/40 bg-violet-50 text-violet-700",
   },
+  {
+    href: "/live-speaker",
+    title: "Live · Speaker",
+    blurb: "Stream your mic live; share a QR code so listeners can tune in.",
+    Icon: Radio,
+    accent: "ring-amber-500/40 bg-amber-50 text-amber-700",
+  },
 ];
 
 export function ModeSelector() {
   return (
-    <div className="grid gap-4 sm:grid-cols-3">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {MODES.map(({ href, title, blurb, Icon, accent }) => (
         <Link
           key={href}
