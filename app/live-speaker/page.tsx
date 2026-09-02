@@ -375,7 +375,6 @@ export default function LiveSpeakerPage() {
     const Ctor: typeof AudioContext =
       window.AudioContext ||
       // Safari support.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (window as unknown as { webkitAudioContext: typeof AudioContext })
         .webkitAudioContext;
     const ctx = new Ctor({ sampleRate: 48000, latencyHint: "interactive" });
