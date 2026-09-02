@@ -48,8 +48,11 @@ export default function AudioToTextPage() {
         body: JSON.stringify({
           endpoint: "/v1/audio/transcriptions",
           body: {
-            // gemini-2.5-pro accepts audio input; gemini-2.5-flash does NOT.
-            model: "gemini-2.5-pro",
+            // gemini-2.5-flash accepts audio input via inlineData and has the
+            // most generous free-tier rate limit. Verified 2026-09-02.
+            // (gemini-2.5-pro 429s on free tier; gemini-3.5-transcribe is
+            //  Interactions-API only, not :generateContent.)
+            model: "gemini-2.5-flash",
             audio,
             language,
             prompt:
