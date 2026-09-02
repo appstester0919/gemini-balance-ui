@@ -14,9 +14,14 @@
 import { NextResponse } from "next/server";
 import { proxyFetch, getKeyPool } from "@/lib/proxy";
 
-export const runtime = "edge"; // uses process.env (env vars without NEXT_PUBLIC_ prefix), up to 30s timeout
+// Switched to Node runtime: Vercel Edge free-plan maxDuration caps at 60s
+// which is too tight for the 3-step A2A pipeline (transcribe + translate + TTS).
+// Node runtime supports up to 300s on Hobby / 800s on Pro. maxDuration=180 gives
+// 3x headroom over the worst-case pipeline (~45s observed) and includes abort
+// handling so we don't tie up Vercel concurrency slots.
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60; // request budget — Vercel will clamp to plan limit if exceeded
+export const maxDuration = 180;
 
 interface RequestBody {
   endpoint?: unknown;

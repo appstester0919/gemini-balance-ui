@@ -48,7 +48,8 @@ export default function AudioToTextPage() {
         body: JSON.stringify({
           endpoint: "/v1/audio/transcriptions",
           body: {
-            model: "gemini-2.5-flash",
+            // gemini-2.5-pro accepts audio input; gemini-2.5-flash does NOT.
+            model: "gemini-2.5-pro",
             audio,
             language,
             prompt:

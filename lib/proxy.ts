@@ -51,7 +51,10 @@ interface ProxyOpts {
 }
 
 export async function proxyFetch<T = unknown>(opts: ProxyOpts): Promise<ProxyResult<T>> {
-  const { endpoint, body, timeoutMs = 60_000, signal } = opts;
+  // 3-step A2A pipeline can take ~45s; 150s gives 3x headroom while staying
+  // under Vercel Node maxDuration=180. Per-call cap is independent so even
+  // direct probes don't wait forever.
+  const { endpoint, body, timeoutMs = 150_000, signal } = opts;
 
   const url = `${getBackend()}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
   const key = pickKey();
