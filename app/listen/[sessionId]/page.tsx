@@ -6,21 +6,22 @@
  * URL shape:
  *   /listen/[sessionId]?token=<ephemeral-token>
  *
- * Connects to /live-listener?session=X&token=Y over WebSocket and plays the
- * incoming L16 PCM stream with a small jitter buffer (default 300ms) so the
- * user hears smooth audio even when chunks arrive unevenly.
+ * Connects DIRECTLY to the Deno backend
+ *   wss://gemini-balance-lite.appstester0919.deno.net/ws/listen?session=<id>
+ * via `lib/live-ws.ts`. The browser never sees a Gemini API key — auth is
+ * the Deno backend's `GMB_KEYS` env var. The `?token=` query param is
+ * accepted for backward-compat (old share links) but is not required and
+ * is not sent to the backend.
  *
- * Wire format (preferred — matches the rest of the gemini-balance pipeline):
- *   JSON envelope:
- *     { "type": "audio", "sampleRate": 24000, "sequence": 42,
- *       "format": "pcm_s16le", "data": "<base64 PCM>" }
+ * Wire format from the backend:
+ *   Binary frames: raw Int16 PCM @ the negotiated sample rate (default
+ *     24000 Hz, mono). The page may also receive the same payload as a
+ *     JSON envelope of the form
+ *       { "type": "audio", "sampleRate": 24000, "data": "<base64 PCM>" }
  *   Control frames:
- *     { "type": "ready" }                                  // server greeting
- *     { "type": "end"   }                                  // stream finished
- *     { "type": "error", "message": "..." }                // fatal server error
- *
- * Fallback: if the server sends a Blob/ArrayBuffer frame, it is treated as
- * raw 16-bit little-endian PCM at the previously-negotiated sample rate.
+ *       { "type": "ready" }                                  // server greeting
+ *       { "type": "end"   }                                  // stream finished
+ *       { "type": "error", "message": "..." }                // fatal server error
  *
  * This page is deliberately read-only — there is no microphone access.
  */
@@ -38,6 +39,7 @@ import {
   CheckCircle2,
   Activity,
 } from "lucide-react";
+import { resolveListenerWsUrl } from "@/lib/live-ws";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -103,14 +105,6 @@ function base64ToInt16(b64: string): Int16Array {
 /** Format a millisecond duration as "1.2s". */
 function fmtMs(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
-}
-
-/** Resolve the WS endpoint URL based on the current page origin. */
-function resolveWsUrl(sessionId: string, token: string): string {
-  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const host = window.location.host;
-  const qs = new URLSearchParams({ session: sessionId, token }).toString();
-  return `${proto}//${host}/live-listener?${qs}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -392,11 +386,9 @@ export default function ListenPage({ params }: PageProps) {
   // -------------------------------------------------------------------------
 
   const connect = useCallback(async () => {
-    if (!token) {
-      setErrorMsg("Missing token query parameter. URL must be /listen/<sessionId>?token=<token>.");
-      setStatus("error");
-      return;
-    }
+    // No more required token — the Deno backend authenticates via its
+    // `GMB_KEYS` env var. The page still surfaces a parsed token in the UI
+    // header for backward-compat with old share links.
 
     const ok = await ensureAudioGraph();
     if (!ok) return;
@@ -405,7 +397,7 @@ export default function ListenPage({ params }: PageProps) {
     setServerMessage(null);
     setStatus("connecting");
 
-    const url = resolveWsUrl(sessionId, token);
+    const url = resolveListenerWsUrl(sessionId);
     const ws = new WebSocket(url);
     wsRef.current = ws;
     ws.binaryType = "arraybuffer";
@@ -432,7 +424,7 @@ export default function ListenPage({ params }: PageProps) {
       }
       // Auth failures should not retry.
       if (evt.code === 1008 || evt.code === 4401 || evt.code === 4403) {
-        setErrorMsg(`Connection refused (code ${evt.code}). Check your token.`);
+        setErrorMsg(`Connection refused (code ${evt.code}). The backend requires GMB_KEYS to be set on the Deno Deploy dashboard.`);
         setStatus("error");
         return;
       }
@@ -453,7 +445,7 @@ export default function ListenPage({ params }: PageProps) {
         void connect();
       }, delay);
     };
-  }, [ensureAudioGraph, handleMessage, sessionId, token]);
+  }, [ensureAudioGraph, handleMessage, sessionId]);
 
   const disconnect = useCallback(() => {
     intentionalCloseRef.current = true;

@@ -6,21 +6,25 @@
  * Responsibilities (single-screen):
  *  1. Capture mic audio via AudioContext → AudioWorklet that downsamples to
  *     16kHz mono Float32 PCM in ~100ms chunks.
- *  2. Open a WebSocket to /live-speaker (configurable via NEXT_PUBLIC_LIVE_WS_URL,
- *     falls back to a same-origin path) and stream the PCM frames as binary
- *     messages.
+ *  2. Open a WebSocket DIRECTLY to the Deno backend
+ *     (gemini-balance-lite.appstester0919.deno.net/ws/live — see
+ *     lib/live-ws.ts) and stream the PCM frames as binary messages.
  *  3. Surface session metadata: source language, up to three target
  *     languages (default yue→zh), and a stable `sessionId` so listeners can
  *     join the same stream.
- *  4. Render a QR code that links to /live-listener?session=<id> for users
- *     who scan it from a phone.
+ *  4. Render a QR code that links to /listen/<sessionId> for users who scan
+ *     it from a phone.
  *  5. Expose an end-session button that cleanly tears down mic, worklet,
  *     AudioContext and the socket.
  *
- * Auth: handled at the edge by middleware.ts (HTTP Basic). The WS handshake
- * cannot set an Authorization header, so we also try to forward basic-auth
- * via the `Sec-WebSocket-Protocol` subprotocol. If the backend rejects (401),
- * the connection drops and the status pill shows the error.
+ * Backend contract: the FIRST text frame after WS open MUST be a JSON
+ * `{ setup: { ... } }` message — the Deno bridge sniffs it, fills in
+ * `model` + `sessionResumption`, and forwards it to the Gemini Live API
+ * upstream. Subsequent text frames are passed through; binary frames are
+ * PCM chunks for the speaker's own mic.
+ *
+ * Auth: handled server-side by the Deno backend's `GMB_KEYS` env var. The
+ * browser cannot set WS handshake headers, so we never see a Gemini key.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -44,6 +48,7 @@ import {
   type LanguageCode,
 } from "@/components/LanguageSelector";
 import type { LanguageOption } from "@/components/LanguageSelector";
+import { resolveSpeakerWsUrl } from "@/lib/live-ws";
 
 type ConnStatus =
   | "idle"
@@ -70,30 +75,25 @@ interface SessionMeta {
 }
 
 /**
- * Same-origin-or-env WS endpoint. The Deno `gemini-balance-live` backend
- * speaks this path; in dev we hit the local Next.js route at /api/live-speaker
- * if NEXT_PUBLIC_LIVE_WS_URL is not set.
+ * WS endpoint resolution lives in lib/live-ws.ts. We open the socket
+ * directly to the Deno backend (wss://gemini-balance-lite.appstester0919.deno.net/ws/live),
+ * bypassing the Vercel frontend so the Basic Auth middleware cannot block
+ * the WS handshake. See lib/live-ws.ts for the auth rationale.
  */
-function resolveWsUrl(): string {
-  const fromEnv = process.env.NEXT_PUBLIC_LIVE_WS_URL;
-  if (fromEnv && fromEnv.length > 0) return fromEnv;
-  if (typeof window === "undefined") return "ws://localhost:3000/live-speaker";
-  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}/live-speaker`;
-}
 
 /**
- * Build a listener URL with `?session=<id>` (and the same target languages
- * so the listener page can default to the same direction). Relative so the
- * Next.js origin is used; the listener page is at /live-listener.
+ * Build a listener URL (relative to the current Next.js origin) so a phone
+ * that scans the QR opens `/listen/<sessionId>` on this app. The listener
+ * page will dial its own WS out to /ws/listen?session=<id>.
  */
 function buildListenerUrl(sessionId: string, targets: TargetLanguage[]): string {
   const origin =
     typeof window !== "undefined" ? window.location.origin : "";
   const params = new URLSearchParams();
-  params.set("session", sessionId);
   if (targets.length > 0) params.set("targets", targets.join(","));
-  return `${origin}/live-listener?${params.toString()}`;
+  return `${origin}/listen/${encodeURIComponent(sessionId)}${
+    params.toString() ? `?${params.toString()}` : ""
+  }`;
 }
 
 /**
@@ -277,22 +277,32 @@ export default function LiveSpeakerPage() {
     setStatus("connecting");
 
     // 1. Open WebSocket first so the server can fail-fast on auth.
-    const wsUrl = resolveWsUrl();
+    // sessionId is sent on the query string so the backend can reuse the
+    // upstream Gemini Live session across the 9-minute rotate.
+    const wsUrl = resolveSpeakerWsUrl(sessionIdRef.current);
     const ws = new WebSocket(wsUrl, ["audio.v1"]);
     wsRef.current = ws;
     ws.binaryType = "arraybuffer";
 
     ws.onopen = async () => {
       try {
+        // FIRST text frame MUST be a `{ setup: { ... } }` envelope — the
+        // Deno bridge sniffs it (live_handler.ts:178), injects `model` +
+        // `sessionResumption`, and forwards it to the Gemini Live API.
         ws.send(
           JSON.stringify({
-            type: "start",
-            sessionId: sessionIdRef.current,
-            sourceLang: source,
-            targetLangs: targets,
-            sampleRate: 16000,
-            channels: 1,
-            format: "pcm-f32",
+            setup: {
+              generationConfig: {
+                responseModalities: ["AUDIO"],
+                speechConfig: {
+                  voiceConfig: {
+                    prebuiltVoiceConfig: { voiceName: "Orus" },
+                  },
+                },
+              },
+              inputAudioTranscription: {},
+              outputAudioTranscription: {},
+            },
           }),
         );
         // 2. Once the socket is up, capture mic & load worklet. Doing this
@@ -723,7 +733,7 @@ export default function LiveSpeakerPage() {
           </li>
           <li>
             Each chunk is sent as a binary WebSocket frame to{" "}
-            <code>{resolveWsUrl().replace(/^wss?:\/\//, "")}</code>.
+            <code>{resolveSpeakerWsUrl(session?.id || "preview").replace(/^wss?:\/\//, "")}</code>.
           </li>
           <li>
             The backend fans the recognized text out to every connected

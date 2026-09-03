@@ -100,13 +100,69 @@ pnpm build && pnpm start
 - For the cleanest deployment, disable Vercel Authentication in
   Settings → Deployment Protection so our middleware is the sole gate.
 
+## Live translation mode
+
+Two pages at the edges of the app cooperate with the Deno backend to run a
+"1 speaker → many listeners" live translation session:
+
+| Page                | Role                                              |
+| ------------------- | ------------------------------------------------- |
+| `/live-speaker`     | Captures mic, streams 16kHz PCM upstream          |
+| `/listen/[session]` | Read-only player for an audience                  |
+
+The speaker page generates a `sessionId` and renders a QR code linking to
+`/listen/<sessionId>`. Listeners open that page and hear the translated
+audio in real time.
+
+### WebSocket endpoints
+
+Both pages connect **directly** to the Deno backend, NOT through Vercel.
+Vercel runs HTTP-only at the edge, and the frontend's `middleware.ts`
+Basic Auth gate would block an unauthenticated WS handshake before it
+could reach any backend.
+
+| Page          | URL                                                                  |
+| ------------- | -------------------------------------------------------------------- |
+| Speaker       | `wss://gemini-balance-lite.appstester0919.deno.net/ws/live?session=…` |
+| Listener      | `wss://gemini-balance-lite.appstester0919.deno.net/ws/listen?session=…`|
+
+Override the speaker URL for local dev with `NEXT_PUBLIC_LIVE_WS_URL`
+(for example `ws://localhost:8000/ws/live` against a `deno task dev`
+backend).
+
+### Why no API key in the browser?
+
+Browser `WebSocket` exposes no way to set custom handshake headers, and
+putting a key in a query string would leak it into Deno log lines. The
+backend therefore authenticates via its own env var:
+
+1. Sign in to the Deno Deploy dashboard for `gemini-balance-lite`.
+2. Open **Settings → Environment Variables**.
+3. Set `GMB_KEYS` = comma-separated Gemini API keys. (Same var the HTTP
+   proxy uses; the WS bridge reads from the same pool.)
+4. Save. The next deploy (or hot reload) picks it up — no frontend change
+   required.
+
+Without `GMB_KEYS`, `/ws/live` returns HTTP 503 (`"No Gemini API keys
+available"`) before completing the upgrade handshake. The speaker page
+surfaces that as a status-pill error.
+
+### Speaker first-message contract
+
+The very first text frame after the speaker's WS opens MUST be a JSON
+`{ setup: { ... } }` envelope matching the Gemini Live API setup shape.
+The Deno bridge sniffs it, fills in `model` + `sessionResumption`, and
+forwards verbatim to the upstream. Subsequent text frames are passive
+control; binary frames are 16 kHz mono Float32 PCM chunks for the speaker's
+mic. See `live_handler.ts` for the bridge and `app/live-speaker/page.tsx`
+for the browser-side payload.
+
 ## Limitations / next steps
 
 - LB key selection is a simple round-robin counter in memory. For production,
   swap in a smarter strategy (least-recently-used, weighted by recent error
   rate, etc.) and persist across serverless cold-starts via Upstash Redis.
-- No streaming yet — large transcriptions could block. Consider server-sent
-  events if user feedback demands it.
-- Real-time / live streaming (Sub-task C from the original plan) is NOT yet
-  implemented — current A2A path is upload-and-process. Live API WebSocket
-  requires a separate session.
+- No streaming yet on the A2A HTTP path — large transcriptions could block.
+  Consider server-sent events if user feedback demands it.
+- WS reconnect on the speaker side is fire-and-forget; the listener page has
+  exponential-backoff reconnect (1s → 8s, capped at 6 attempts).
